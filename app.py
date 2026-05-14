@@ -25,8 +25,8 @@ st.markdown("---")
 # --- SIDEBAR: DYNAMIC INPUTS ---
 with st.sidebar:
     st.header("⚙️ Investment Controls")
-    monthly_sip = st.number_input("Monthly SIP Amount (NPR)", value=10000, step=1000)
-    initial_lump = st.number_input("Initial Investment (Lump Sum)", value=100000)
+    monthly_sip = st.number_input("Monthly SIP Amount (NPR)", value=10000, min_value=500, step=1000)
+    initial_lump = st.number_input("Initial Investment (Lump Sum)", value=100000, min_value=0)
     expected_return = st.slider("Expected Annual Return (%)", 5, 25, 12)
     inflation_rate = st.slider("Avg. Inflation Rate (%)", 0, 12, 6)
     duration_years = st.slider("Horizon (Years)", 1, 40, 15)
@@ -43,7 +43,17 @@ inf_m_rate = (inflation_rate / 100) / 12
 time_axis = np.arange(months + 1)
 
 # Nominal and Real Growth
-sip_nominal = [monthly_sip * (((1 + m_rate)**m - 1) / m_rate) * (1 + m_rate) if m > 0 else 0 for m in time_axis]
+# Using a loop to avoid division by zero issues in m_rate if return is set to 0
+sip_nominal = []
+for m in time_axis:
+    if m == 0:
+        sip_nominal.append(0)
+    elif m_rate == 0:
+        sip_nominal.append(monthly_sip * m)
+    else:
+        val = monthly_sip * (((1 + m_rate)**m - 1) / m_rate) * (1 + m_rate)
+        sip_nominal.append(val)
+
 lump_nominal = initial_lump * (1 + m_rate)**time_axis
 total_nominal = np.array(sip_nominal) + np.array(lump_nominal)
 total_real = total_nominal / (1 + inf_m_rate)**time_axis
@@ -101,18 +111,23 @@ with i1:
 with i2:
     # Logic to estimate how many more months to reach target if not reached
     if final_wealth < target_goal:
-        # Simple iterative estimation for remaining time
         future_val = final_wealth
         extra_months = 0
-        while future_val < target_goal and extra_months < 600: # limit to 50 extra years
+        # Prevent infinite loop if rate is 0 or negative
+        safe_m_rate = max(m_rate, 0.0001) 
+        while future_val < target_goal and extra_months < 600: 
             extra_months += 1
-            future_val = (future_val + monthly_sip) * (1 + m_rate)
+            future_val = (future_val + monthly_sip) * (1 + safe_m_rate)
         
         st.info(f"⏳ **Time Adjustment:** At this rate, it would take approx. **{extra_months} more months** to hit your goal.")
     else:
-        # Calculate when exactly the goal was hit
-        months_to_hit = np.argmax(total_nominal >= target_goal)
-        st.info(f"⏱️ **Efficiency:** You will hit your goal in **Year {months_to_hit//12}, Month {months_to_hit%12}**.")
+        # Fixed logic to find the specific month the goal was crossed
+        reached_indices = np.where(total_nominal >= target_goal)[0]
+        if len(reached_indices) > 0:
+            m_hit = reached_indices[0]
+            st.info(f"⏱️ **Efficiency:** You hit your goal in **Year {m_hit//12}, Month {m_hit%12}**.")
+        else:
+            st.info("⏱️ **Efficiency:** Goal reached at the very end of the term.")
 
 # --- DATA TABLE ---
 with st.expander("📊 View Detailed Ledger"):
